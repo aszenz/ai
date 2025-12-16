@@ -229,6 +229,19 @@ final class Factory
                 if (\in_array($className, ['DateTime', 'DateTimeImmutable', 'DateTimeInterface'], true)) {
                     return ['type' => 'string', 'format' => 'date-time'];
                 } else {
+                    // Check for the DiscriminatorMap attribute to handle polymorphic interfaces
+                    $discriminatorMapping = $this->findDiscriminatorMapping($className);
+                    if ($discriminatorMapping) {
+                        $discriminators = [];
+                        foreach ($discriminatorMapping as $_ => $discriminator) {
+                            $discriminators[] = $this->buildProperties($discriminator);
+                        }
+
+                        return [
+                            'type' => 'object',
+                            'oneOf' => $discriminators,
+                        ];
+                    }
                     // Recursively build the schema for an object type
                     return $this->buildProperties($className) ?? ['type' => 'object'];
                 }
