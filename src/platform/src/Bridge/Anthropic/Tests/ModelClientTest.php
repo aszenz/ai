@@ -97,6 +97,52 @@ class ModelClientTest extends TestCase
         $this->modelClient->request($this->model, ['message' => 'test'], $options);
     }
 
+    public function testTransformsResponseFormatToOutputConfig()
+    {
+        $this->httpClient = new MockHttpClient(static function ($method, $url, $options) {
+            self::assertSame('POST', $method);
+            self::assertSame('https://api.anthropic.com/v1/messages', $url);
+
+            $body = json_decode($options['body'], true);
+
+            self::assertArrayNotHasKey('response_format', $body);
+            self::assertArrayHasKey('output_config', $body);
+            self::assertSame([
+                'format' => [
+                    'type' => 'json_schema',
+                    'schema' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'name' => ['type' => 'string'],
+                        ],
+                        'required' => ['name'],
+                        'additionalProperties' => false,
+                    ],
+                ],
+            ], $body['output_config']);
+
+            return new JsonMockResponse('{"success": true}');
+        });
+
+        $this->modelClient = new ModelClient($this->httpClient, 'test-api-key');
+
+        $options = [
+            'response_format' => [
+                'json_schema' => [
+                    'schema' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'name' => ['type' => 'string'],
+                        ],
+                        'required' => ['name'],
+                        'additionalProperties' => false,
+                    ],
+                ],
+            ],
+        ];
+        $this->modelClient->request($this->model, ['message' => 'test'], $options);
+    }
+
     /**
      * @param list<string> $headers
      *

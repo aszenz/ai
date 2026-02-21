@@ -129,4 +129,55 @@ final class ClaudeModelClientTest extends TestCase
         $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
         $this->assertInstanceOf(RawBedrockResult::class, $response);
     }
+
+    public function testTransformsResponseFormatToOutputConfig()
+    {
+        $this->bedrockClient->expects($this->once())
+            ->method('invokeModel')
+            ->with($this->callback(function ($arg) {
+                $this->assertInstanceOf(InvokeModelRequest::class, $arg);
+                $this->assertSame('application/json', $arg->getContentType());
+                $this->assertTrue(json_validate($arg->getBody()));
+
+                $body = json_decode($arg->getBody(), true);
+                $this->assertArrayNotHasKey('response_format', $body);
+                $this->assertArrayHasKey('output_config', $body);
+                self::assertSame([
+                    'format' => [
+                        'type' => 'json_schema',
+                        'schema' => [
+                            'type' => 'object',
+                            'properties' => [
+                                'name' => ['type' => 'string'],
+                            ],
+                            'required' => ['name'],
+                            'additionalProperties' => false,
+                        ],
+                    ],
+                ], $body['output_config']);
+
+                return true;
+            }))
+            ->willReturn($this->createMock(InvokeModelResponse::class));
+
+        $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
+
+        $options = [
+            'response_format' => [
+                'json_schema' => [
+                    'schema' => [
+                        'type' => 'object',
+                        'properties' => [
+                            'name' => ['type' => 'string'],
+                        ],
+                        'required' => ['name'],
+                        'additionalProperties' => false,
+                    ],
+                ],
+            ],
+        ];
+
+        $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
+        $this->assertInstanceOf(RawBedrockResult::class, $response);
+    }
 }
