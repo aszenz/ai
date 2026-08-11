@@ -29,6 +29,13 @@ final class ClaudeModelClient implements ModelClientInterface
     use JsonSchemaSanitizerTrait;
 
     /**
+     * Bedrock caps the request metadata map at 16 pairs, each key and value at 256
+     * characters from a restricted character set.
+     */
+    private const METADATA_MAX_PAIRS = 16;
+    private const METADATA_MAX_LENGTH = 256;
+
+    /**
      * Bedrock model identifiers differ from Anthropic API names — some require version suffixes,
      * others don't. See https://platform.claude.com/docs/en/about-claude/models/overview for details.
      *
@@ -79,6 +86,9 @@ final class ClaudeModelClient implements ModelClientInterface
 
         unset($payload['model']);
 
+        $requestMetadata = $options['request_metadata'] ?? [];
+        unset($options['request_metadata']);
+
         if (isset($options['tools'])) {
             $options['tool_choice'] ??= ['type' => 'auto'];
         }
@@ -104,7 +114,54 @@ final class ClaudeModelClient implements ModelClientInterface
             'body' => json_encode(array_merge($options, $payload), \JSON_THROW_ON_ERROR),
         ];
 
+        if ([] !== $requestMetadata = $this->sanitizeRequestMetadata($requestMetadata)) {
+            $request['requestMetadata'] = json_encode($requestMetadata, \JSON_THROW_ON_ERROR);
+        }
+
         return new RawBedrockResult($this->bedrockRuntimeClient->invokeModel(new InvokeModelRequest($request)));
+    }
+
+    /**
+     * Bedrock writes this map into the model invocation logs, which is what makes an
+     * invocation attributable to the conversation, user or feature it belongs to.
+     *
+     * It rejects the whole request when a key or value falls outside its allowed set, so
+     * values are scrubbed rather than passed through: the caller's data is what tends to
+     * carry the characters Bedrock refuses, and losing an invocation to a log label is a
+     * worse trade than losing a character from the label.
+     *
+     * @param mixed $metadata
+     *
+     * @return array<string, string>
+     */
+    private function sanitizeRequestMetadata($metadata): array
+    {
+        if (!\is_array($metadata)) {
+            return [];
+        }
+
+        $sanitized = [];
+        foreach ($metadata as $key => $value) {
+            if (!\is_string($key) || null === $value || \is_array($value)) {
+                continue;
+            }
+
+            $key = self::scrub($key);
+            $value = self::scrub((string) $value);
+
+            if ('' === $key || '' === $value) {
+                continue;
+            }
+
+            $sanitized[$key] = $value;
+        }
+
+        return \array_slice($sanitized, 0, self::METADATA_MAX_PAIRS, true);
+    }
+
+    private static function scrub(string $value): string
+    {
+        return substr(preg_replace('#[^a-zA-Z0-9\s:_@$\#=/+,.-]#', '_', $value) ?? '', 0, self::METADATA_MAX_LENGTH);
     }
 
     private function getModelId(Model $model): string

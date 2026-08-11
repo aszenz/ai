@@ -1,6 +1,11 @@
 CHANGELOG
 =========
 
+0.13
+----
+
+ * Add a `request_metadata` option to the Anthropic Claude model client, forwarded to Bedrock as `requestMetadata` so invocations can be attributed in the model invocation logs. Keys and values are scrubbed to the character set, length and pair count Bedrock accepts
+
 0.10
 ----
 
