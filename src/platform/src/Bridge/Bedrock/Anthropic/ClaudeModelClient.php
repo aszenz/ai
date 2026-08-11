@@ -114,7 +114,8 @@ final class ClaudeModelClient implements ModelClientInterface
             'body' => json_encode(array_merge($options, $payload), \JSON_THROW_ON_ERROR),
         ];
 
-        if ([] !== $requestMetadata = $this->sanitizeRequestMetadata($requestMetadata)) {
+        $requestMetadata = $this->sanitizeRequestMetadata($requestMetadata);
+        if ([] !== $requestMetadata) {
             $request['requestMetadata'] = json_encode($requestMetadata, \JSON_THROW_ON_ERROR);
         }
 
@@ -130,11 +131,9 @@ final class ClaudeModelClient implements ModelClientInterface
      * carry the characters Bedrock refuses, and losing an invocation to a log label is a
      * worse trade than losing a character from the label.
      *
-     * @param mixed $metadata
-     *
      * @return array<string, string>
      */
-    private function sanitizeRequestMetadata($metadata): array
+    private function sanitizeRequestMetadata(mixed $metadata): array
     {
         if (!\is_array($metadata)) {
             return [];
@@ -142,7 +141,7 @@ final class ClaudeModelClient implements ModelClientInterface
 
         $sanitized = [];
         foreach ($metadata as $key => $value) {
-            if (!\is_string($key) || null === $value || \is_array($value)) {
+            if (!\is_string($key) || !\is_scalar($value)) {
                 continue;
             }
 
@@ -161,7 +160,9 @@ final class ClaudeModelClient implements ModelClientInterface
 
     private static function scrub(string $value): string
     {
-        return substr(preg_replace('#[^a-zA-Z0-9\s:_@$\#=/+,.-]#', '_', $value) ?? '', 0, self::METADATA_MAX_LENGTH);
+        // A malformed UTF-8 subject makes preg_replace() return null, which casts to an
+        // empty string here and drops the pair — Bedrock would reject it anyway.
+        return substr((string) preg_replace('#[^a-zA-Z0-9\s:_@$\#=/+,.-]+#u', '_', $value), 0, self::METADATA_MAX_LENGTH);
     }
 
     private function getModelId(Model $model): string

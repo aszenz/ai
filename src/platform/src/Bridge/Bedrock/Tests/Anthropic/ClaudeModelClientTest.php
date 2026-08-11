@@ -321,7 +321,7 @@ final class ClaudeModelClientTest extends TestCase
             ->method('invokeModel')
             ->with($this->callback(function ($arg) {
                 $this->assertSame(
-                    ['user' => 'alice_example.com', 'note' => 'caf_'],
+                    ['user' => 'alice_example.com', 'note' => 'r_sum_'],
                     json_decode($arg->getRequestMetadata(), true),
                 );
 
@@ -331,7 +331,7 @@ final class ClaudeModelClientTest extends TestCase
 
         $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
 
-        $options = ['request_metadata' => ['user' => 'alice<>example.com', 'note' => "caf\u{e9}"]];
+        $options = ['request_metadata' => ['user' => 'alice<>example.com', 'note' => "r\u{e9}sum\u{e9}"]];
 
         $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
         $this->assertInstanceOf(RawBedrockResult::class, $response);
