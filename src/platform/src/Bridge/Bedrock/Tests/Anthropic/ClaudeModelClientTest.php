@@ -268,4 +268,120 @@ final class ClaudeModelClientTest extends TestCase
         $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
         $this->assertInstanceOf(RawBedrockResult::class, $response);
     }
+
+    public function testForwardsRequestMetadata()
+    {
+        $this->bedrockClient->expects($this->once())
+            ->method('invokeModel')
+            ->with($this->callback(function ($arg) {
+                $this->assertInstanceOf(InvokeModelRequest::class, $arg);
+                $this->assertSame(
+                    ['conversation_id' => 'conv-1', 'user' => 'alice'],
+                    json_decode($arg->getRequestMetadata(), true),
+                );
+                $this->assertArrayNotHasKey('request_metadata', json_decode($arg->getBody(), true));
+
+                return true;
+            }))
+            ->willReturn($this->createMock(InvokeModelResponse::class));
+
+        $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
+
+        $options = ['request_metadata' => ['conversation_id' => 'conv-1', 'user' => 'alice']];
+
+        $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
+        $this->assertInstanceOf(RawBedrockResult::class, $response);
+    }
+
+    public function testOmitsRequestMetadataWhenNotProvided()
+    {
+        $this->bedrockClient->expects($this->once())
+            ->method('invokeModel')
+            ->with($this->callback(function ($arg) {
+                $this->assertInstanceOf(InvokeModelRequest::class, $arg);
+                $this->assertNull($arg->getRequestMetadata());
+
+                return true;
+            }))
+            ->willReturn($this->createMock(InvokeModelResponse::class));
+
+        $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
+
+        $response = $this->modelClient->request($this->model, ['message' => 'test']);
+        $this->assertInstanceOf(RawBedrockResult::class, $response);
+    }
+
+    /**
+     * Bedrock rejects the whole invocation when a value falls outside its allowed character
+     * set, so the label is scrubbed rather than the call lost.
+     */
+    public function testScrubsCharactersBedrockRejects()
+    {
+        $this->bedrockClient->expects($this->once())
+            ->method('invokeModel')
+            ->with($this->callback(function ($arg) {
+                $this->assertSame(
+                    ['user' => 'alice_example.com', 'note' => 'r_sum_'],
+                    json_decode($arg->getRequestMetadata(), true),
+                );
+
+                return true;
+            }))
+            ->willReturn($this->createMock(InvokeModelResponse::class));
+
+        $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
+
+        $options = ['request_metadata' => ['user' => 'alice<>example.com', 'note' => "r\u{e9}sum\u{e9}"]];
+
+        $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
+        $this->assertInstanceOf(RawBedrockResult::class, $response);
+    }
+
+    public function testTruncatesRequestMetadataToBedrockLimits()
+    {
+        $this->bedrockClient->expects($this->once())
+            ->method('invokeModel')
+            ->with($this->callback(function ($arg) {
+                $metadata = json_decode($arg->getRequestMetadata(), true);
+                $this->assertCount(16, $metadata);
+                $this->assertSame(256, \strlen($metadata['key0']));
+
+                return true;
+            }))
+            ->willReturn($this->createMock(InvokeModelResponse::class));
+
+        $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
+
+        $metadata = ['key0' => str_repeat('a', 300)];
+        for ($i = 1; $i < 20; ++$i) {
+            $metadata['key'.$i] = 'value';
+        }
+
+        $response = $this->modelClient->request($this->model, ['message' => 'test'], ['request_metadata' => $metadata]);
+        $this->assertInstanceOf(RawBedrockResult::class, $response);
+    }
+
+    public function testSkipsEmptyAndNonScalarRequestMetadata()
+    {
+        $this->bedrockClient->expects($this->once())
+            ->method('invokeModel')
+            ->with($this->callback(function ($arg) {
+                $this->assertSame(['user' => 'alice'], json_decode($arg->getRequestMetadata(), true));
+
+                return true;
+            }))
+            ->willReturn($this->createMock(InvokeModelResponse::class));
+
+        $this->modelClient = new ClaudeModelClient($this->bedrockClient, self::VERSION);
+
+        $options = ['request_metadata' => [
+            'user' => 'alice',
+            'missing' => null,
+            'blank' => '',
+            'nested' => ['a' => 'b'],
+        ]];
+
+        $response = $this->modelClient->request($this->model, ['message' => 'test'], $options);
+        $this->assertInstanceOf(RawBedrockResult::class, $response);
+    }
 }
